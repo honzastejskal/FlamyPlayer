@@ -160,6 +160,11 @@ private const val INDICATOR_TIMEOUT_MS = 700L
 private const val NOTICE_TIMEOUT_MS = 8_000L
 private const val DOUBLE_TAP_MS = 300L
 private const val SEEK_STEP_MS = 10_000L
+// Repeats of a held arrow until fast forward or rewind starts; the first comes after about
+// half a second.
+private const val HOLD_REPEATS = 2
+private const val FOCUS_ATTEMPTS = 20
+private const val FOCUS_RETRY_MS = 100L
 
 /** How many presses of an arrow take a setting slider from one end to the other. */
 private const val SLIDER_STEPS = 20f
@@ -232,6 +237,17 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
     LaunchedEffect(focusControlsRequests) {
         if (focusControlsRequests > 0) playFocus.tryRequestFocus()
     }
+    LaunchedEffect(controlsVisible) {
+        // On a TV the window hands focus to the first button it finds, which is Back up in the
+        // corner: OK would then leave the player. Whenever the controls show, OK is meant for
+        // play and pause. The buttons come with the next frames, so try for a moment.
+        if (!isTv || !controlsVisible) return@LaunchedEffect
+        repeat(FOCUS_ATTEMPTS) {
+            withFrameNanos { }
+            if (playFocus.tryRequestFocus()) return@LaunchedEffect
+            delay(FOCUS_RETRY_MS)
+        }
+    }
     LaunchedEffect(panel) {
         panelFocused = false
         if (isTv) {
@@ -299,9 +315,27 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
                 }
                 else -> false
             }
+            // Many remote controls have no fast forward and rewind buttons: holding an arrow
+            // starts the same, and while it runs each press of an arrow goes a step up or down.
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (idle) seekByStep(forward = code == KeyEvent.KEYCODE_DPAD_RIGHT)
-                idle
+                val forward = code == KeyEvent.KEYCODE_DPAD_RIGHT
+                when {
+                    trickPlaying -> {
+                        if (first) if (forward) viewModel.fastForward() else viewModel.rewind()
+                        true
+                    }
+                    !idle -> false
+                    first -> {
+                        seekByStep(forward)
+                        true
+                    }
+                    else -> {
+                        if (event.repeatCount == HOLD_REPEATS) {
+                            if (forward) viewModel.fastForward() else viewModel.rewind()
+                        }
+                        true
+                    }
+                }
             }
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> when {
                 panel != Panel.NONE && !panelFocused -> panelFocus.tryRequestFocus()
