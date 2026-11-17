@@ -510,7 +510,7 @@ fun ServerDialog(
         capitalization = KeyboardCapitalization.None,
         autoCorrectEnabled = false,
         imeAction = ImeAction.Next,
-    )
+    ).forTv()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -594,7 +594,7 @@ fun ServerDialog(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.network_name)) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done).forTv(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .leaveWithUpDown()

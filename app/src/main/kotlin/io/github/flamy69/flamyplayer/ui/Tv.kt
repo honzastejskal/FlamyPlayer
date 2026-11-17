@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +28,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -88,15 +90,29 @@ private const val FOCUS_RETRY_MS = 100L
 fun Modifier.leaveWithUpDown(): Modifier = composed {
     if (!rememberIsTv()) return@composed this
     val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     onPreviewKeyEvent { event ->
         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (event.key) {
             Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
             Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+            // With [forTv] the keyboard only comes when asked for.
+            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                keyboard?.show()
+                keyboard != null
+            }
             else -> false
         }
     }
 }
+
+/**
+ * On a TV, keeps the keyboard away until OK is pressed on the text field. Some TV keyboards
+ * cover half the screen and come straight back after Back while the field has focus, so a
+ * field that got focus by itself, or on the way past it, would trap the remote control.
+ */
+@Composable
+fun KeyboardOptions.forTv(): KeyboardOptions = if (rememberIsTv()) copy(showKeyboardOnFocus = false) else this
 
 /** Asks for focus; false when the element is not on screen (yet), which is no error here. */
 fun FocusRequester.tryRequestFocus(): Boolean = try {
