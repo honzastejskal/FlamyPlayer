@@ -30,6 +30,8 @@ android {
 
     defaultConfig {
         applicationId = "io.github.flamy69.flamyplayer"
+        // FlamyPlayer TV is installed beside FlamyPlayer, not over it: own id and own signing key.
+        applicationIdSuffix = ".tv"
         minSdk = 26
         targetSdk = 37
         versionCode = appVersionCode
