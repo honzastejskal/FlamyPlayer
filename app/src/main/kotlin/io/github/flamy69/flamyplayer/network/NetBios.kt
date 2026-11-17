@@ -30,6 +30,8 @@ object NetBios {
     /** Marks the name under which a machine offers its shared folders. */
     private const val SUFFIX_FILE_SERVER = 0x20
     private const val SUFFIX_WORKSTATION = 0x00
+    private const val SUFFIX_BROWSE_MASTER = 0x01
+    private const val BROWSE_MASTER = "\u0001\u0002__MSBROWSE__\u0002"
 
     private const val NAME_LENGTH = 15
     private const val STATUS_ENTRY_SIZE = 18
@@ -47,6 +49,22 @@ object NetBios {
         return exchange(broadcast, timeoutMs, attempts, broadcastQuery = true, { id -> nameQuery(id, name) }) { packet, id ->
             if (isNameResponse(packet.data, packet.length, id)) packet.address else null
         }
+    }
+
+    /**
+     * Asks the whole network for its browse masters: in every workgroup one machine, often the
+     * NAS, keeps the list of the others and answers to a special name. Returns all that answered
+     * within [timeoutMs].
+     */
+    fun browseMasters(broadcast: InetAddress, timeoutMs: Int = 600): List<InetAddress> {
+        val found = LinkedHashSet<InetAddress>()
+        exchange<Unit>(broadcast, timeoutMs, attempts = 1, broadcastQuery = true, { id ->
+            query(id, encodeName(BROWSE_MASTER, SUFFIX_BROWSE_MASTER), TYPE_NAME, FLAG_BROADCAST)
+        }) { packet, id ->
+            if (isNameResponse(packet.data, packet.length, id)) found += packet.address
+            null // Keep listening for more.
+        }
+        return found.toList()
     }
 
     /** Asks the machine at [address] for its name. Returns `null` if it does not answer. */

@@ -64,7 +64,12 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun FlamyTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun FlamyTheme(
+    // A TV is watched in the evening, often in a dark room, and light screens glare there; some
+    // TVs report a light system theme all the same.
+    darkTheme: Boolean = isSystemInDarkTheme() || rememberIsTv(),
+    content: @Composable () -> Unit,
+) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         content = content,

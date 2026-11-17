@@ -34,6 +34,18 @@ object Subnet {
         return (1 until size - 1).map { network + it }.filter { it != address }
     }
 
+    /** Whether [other] lies in the network of [address]. */
+    fun contains(address: Int, prefixLength: Int, other: Int): Boolean =
+        (address and mask(prefixLength)) == (other and mask(prefixLength))
+
+    /** The 254 addresses of the home sized neighborhood that [address] is in, itself included. */
+    fun block(address: Int): List<Int> {
+        val network = address and mask(BLOCK_PREFIX)
+        return (1 until (1 shl (32 - BLOCK_PREFIX)) - 1).map { network + it }
+    }
+
+    private const val BLOCK_PREFIX = 24
+
     fun toInt(address: Inet4Address): Int =
         address.address.fold(0) { result, byte -> (result shl 8) or (byte.toInt() and 0xFF) }
 
@@ -82,6 +94,7 @@ class LocalNetworkScanner(context: Context) {
         val own = Subnet.toAddress(wifi.address)
         val neighbors = Subnet.neighbors(wifi.address, wifi.prefixLength).map(Subnet::toAddress)
         val found = withContext(Dispatchers.IO) {
+            val far = async { farNeighbors(wifi) }
             val streaming = async {
                 Ssdp.mediaServers(neighbors) { socket ->
                     try {
@@ -91,7 +104,8 @@ class LocalNetworkScanner(context: Context) {
                     }
                 }
             }
-            val sharing = PortScan.open(neighbors, SMB_PORT, PROBE_TIMEOUT_MS)
+            val sharing = PortScan.open(neighbors, SMB_PORT, PROBE_TIMEOUT_MS) +
+                PortScan.open(far.await(), SMB_PORT, PROBE_TIMEOUT_MS)
             val answers = streaming.await()
             val servers = answers.map { answer -> async { mediaServer(answer) } }
             val missed = answers.map { it.address }.distinct().filter { it != own && it !in sharing }
@@ -103,6 +117,25 @@ class LocalNetworkScanner(context: Context) {
             device.name?.let { known[it.uppercase()] = device.address }
         }
         return found
+    }
+
+    /**
+     * On a network bigger than a home one, only the neighborhood of 254 addresses around the
+     * device is tried, and a NAS elsewhere in it is missed. Browse masters, often the NAS
+     * itself, answer from anywhere in the network: their neighborhoods are tried as well.
+     */
+    private fun farNeighbors(wifi: Wifi): List<InetAddress> {
+        if (wifi.prefixLength >= FAR_PREFIX_LIMIT) return emptyList()
+        val broadcast = Subnet.toAddress(Subnet.broadcast(wifi.address, wifi.prefixLength))
+        val own = Subnet.block(wifi.address).toSet()
+        return NetBios.browseMasters(broadcast)
+            .filterIsInstance<Inet4Address>()
+            .map(Subnet::toInt)
+            .filter { it !in own && Subnet.contains(wifi.address, wifi.prefixLength, it) }
+            .flatMap(Subnet::block)
+            .distinct()
+            .take(FAR_ADDRESSES_MAX)
+            .map(Subnet::toAddress)
     }
 
     private fun mediaServer(answer: Ssdp.Answer): MediaServer {
@@ -176,6 +209,12 @@ class LocalNetworkScanner(context: Context) {
 
         /** Long enough for a sleepy Wi-Fi device, whose address is asked for again after a second. */
         const val PROBE_TIMEOUT_MS = 1500
+
+        /** Networks of this size or smaller are tried in full anyway. */
+        const val FAR_PREFIX_LIMIT = 24
+
+        /** Two more neighborhoods at most, so that the search does not take much longer. */
+        const val FAR_ADDRESSES_MAX = 2 * 254
         val IPV4 = Regex("""\d{1,3}(\.\d{1,3}){3}""")
     }
 }
