@@ -1,11 +1,13 @@
 package io.github.flamy69.flamyplayer.video
 
+import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -25,6 +27,20 @@ import io.github.flamy69.flamyplayer.ui.FlamyTheme
 class VideoPlayerActivity : ComponentActivity() {
 
     private val viewModel: VideoPlayerViewModel by viewModels()
+
+    /**
+     * Set by the player screen to see the keys of a remote control or keyboard before anything
+     * else does; returns whether it used the key. Coming first matters for the fast forward and
+     * rewind buttons: whatever the window leaves unused goes on to the media session, which
+     * would only jump by a few seconds.
+     */
+    var keyHandler: ((KeyEvent) -> Boolean)? = null
+
+    // The method is public Android API; lint mistakes it for the restricted one of
+    // androidx.core.app.ComponentActivity, which ComponentActivity of androidx.activity extends.
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        keyHandler?.invoke(event) == true || super.dispatchKeyEvent(event)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(

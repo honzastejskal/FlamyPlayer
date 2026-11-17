@@ -10,6 +10,7 @@ import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
+import android.view.KeyEvent
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -22,6 +23,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +53,8 @@ import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.BrightnessMedium
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Pause
@@ -88,12 +92,24 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -112,8 +128,12 @@ import io.github.flamy69.flamyplayer.R
 import io.github.flamy69.flamyplayer.data.OrientationMode
 import io.github.flamy69.flamyplayer.data.SubtitleStyle
 import io.github.flamy69.flamyplayer.data.VideoResizeMode
+import io.github.flamy69.flamyplayer.ui.focusFrame
 import io.github.flamy69.flamyplayer.ui.formatTime
+import io.github.flamy69.flamyplayer.ui.rememberIsTv
+import io.github.flamy69.flamyplayer.ui.tryRequestFocus
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 import android.graphics.Color as AndroidColor
@@ -137,6 +157,9 @@ private const val INDICATOR_TIMEOUT_MS = 700L
 private const val NOTICE_TIMEOUT_MS = 8_000L
 private const val DOUBLE_TAP_MS = 300L
 private const val SEEK_STEP_MS = 10_000L
+
+/** How many presses of an arrow take a setting slider from one end to the other. */
+private const val SLIDER_STEPS = 20f
 
 /** Swipes that start this close to the top or bottom edge belong to the system. */
 private const val EDGE_FRACTION = 0.1f
@@ -164,9 +187,22 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
     // Bumped whenever the viewer touches a control, which restarts the hide timer.
     var interactions by remember { mutableIntStateOf(0) }
     val tapMemory = remember { TapMemory() }
+    val trickPlaying = state.trickSpeed != TrickPlay.NORMAL
 
-    LaunchedEffect(controlsVisible, state.isPlaying, panel, interactions) {
-        if (controlsVisible && state.isPlaying && panel == Panel.NONE) {
+    // On a TV everything is done with the remote control, so focus has to be in the right place.
+    val isTv = rememberIsTv()
+    val playFocus = remember { FocusRequester() }
+    val audioFocus = remember { FocusRequester() }
+    val subtitlesFocus = remember { FocusRequester() }
+    val panelFocus = remember { FocusRequester() }
+    var controlsFocused by remember { mutableStateOf(false) }
+    var panelFocused by remember { mutableStateOf(false) }
+    // Bumped to move focus into the controls once they are on screen.
+    var focusControlsRequests by remember { mutableIntStateOf(0) }
+    var openedPanel by remember { mutableStateOf(Panel.NONE) }
+
+    LaunchedEffect(controlsVisible, state.isPlaying, trickPlaying, panel, interactions) {
+        if (controlsVisible && (state.isPlaying || trickPlaying) && panel == Panel.NONE) {
             delay(CONTROLS_TIMEOUT_MS)
             controlsVisible = false
         }
@@ -186,11 +222,100 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
     LaunchedEffect(state.error) {
         if (state.error != null) controlsVisible = true
     }
+    LaunchedEffect(controlsVisible) {
+        // Whatever had focus in the controls is gone with them.
+        if (!controlsVisible) controlsFocused = false
+    }
+    LaunchedEffect(focusControlsRequests) {
+        if (focusControlsRequests > 0) playFocus.tryRequestFocus()
+    }
+    LaunchedEffect(panel) {
+        panelFocused = false
+        if (isTv) {
+            if (panel != Panel.NONE) {
+                panelFocus.tryRequestFocus()
+            } else if (controlsVisible) {
+                // Back to the button that opened the panel.
+                when (openedPanel) {
+                    Panel.AUDIO -> audioFocus.tryRequestFocus()
+                    Panel.SUBTITLES -> subtitlesFocus.tryRequestFocus()
+                    Panel.NONE -> Unit
+                }
+            }
+        }
+        openedPanel = panel
+    }
 
     val view = LocalView.current
-    DisposableEffect(view, state.isPlaying) {
-        view.keepScreenOn = state.isPlaying
+    DisposableEffect(view, state.isPlaying, trickPlaying) {
+        view.keepScreenOn = state.isPlaying || trickPlaying
         onDispose { view.keepScreenOn = false }
+    }
+
+    fun focusControls() {
+        controlsVisible = true
+        focusControlsRequests++
+    }
+
+    fun seekByStep(forward: Boolean) {
+        viewModel.stopTrickPlay()
+        viewModel.seekBy(if (forward) SEEK_STEP_MS else -SEEK_STEP_MS)
+        indicator = Indicator(if (forward) Icons.Rounded.Forward10 else Icons.Rounded.Replay10, null)
+    }
+
+    // The remote control. Keys that are used here on the way down are also swallowed on the way
+    // up, so that nothing else sees half a key press.
+    val keysInUse = remember { HashSet<Int>() }
+    val handleKey by rememberUpdatedState<(KeyEvent) -> Boolean> { event ->
+        val code = event.keyCode
+        if (event.action != KeyEvent.ACTION_DOWN) return@rememberUpdatedState keysInUse.remove(code)
+        if (controlsVisible) interactions++
+        // Holding a button down repeats it; only the arrows are meant to be held.
+        val first = event.repeatCount == 0
+        // Nothing has focus while the controls are hidden, or at first when they show up.
+        val idle = panel == Panel.NONE && (!controlsVisible || !controlsFocused)
+        val used = when (code) {
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                if (first) viewModel.fastForward()
+                true
+            }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                if (first) viewModel.rewind()
+                true
+            }
+            // Otherwise play and pause are left to the media session.
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY -> viewModel.stopTrickPlay()
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> when {
+                viewModel.stopTrickPlay() -> true
+                idle -> {
+                    if (first) {
+                        viewModel.togglePlay()
+                        focusControls()
+                    }
+                    true
+                }
+                else -> false
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (idle) seekByStep(forward = code == KeyEvent.KEYCODE_DPAD_RIGHT)
+                idle
+            }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> when {
+                panel != Panel.NONE && !panelFocused -> panelFocus.tryRequestFocus()
+                idle -> {
+                    focusControls()
+                    true
+                }
+                else -> false
+            }
+            else -> false
+        }
+        if (used) keysInUse += code
+        used
+    }
+    DisposableEffect(activity) {
+        activity?.keyHandler = { event -> handleKey(event) }
+        onDispose { activity?.keyHandler = null }
     }
 
     val pickSubtitleFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -209,6 +334,10 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
         VideoResizeMode.STRETCH to stringResource(R.string.video_resize_stretch),
     )
 
+    // Back closes what is open, one thing at a time; the last handler that is enabled wins. On a
+    // phone the controls stay out of this: Back leaves the player even while they show.
+    BackHandler(enabled = isTv && controlsVisible) { controlsVisible = false }
+    BackHandler(enabled = trickPlaying) { viewModel.stopTrickPlay() }
     BackHandler(enabled = panel != Panel.NONE) { panel = Panel.NONE }
 
     Box(
@@ -271,7 +400,8 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
             },
         )
 
-        if (state.isLoading && state.error == null) {
+        // Jumping waits for data all the time; the speed indicator says enough then.
+        if (state.isLoading && state.error == null && !trickPlaying) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
         }
 
@@ -279,12 +409,18 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
             Controls(
                 state = state,
                 position = { viewModel.positionMs },
+                // A TV neither turns nor has a sensor for it.
+                showRotation = !isTv,
+                focus = ControlsFocus(playFocus, audioFocus, subtitlesFocus),
+                onFocusChange = { controlsFocused = it },
                 orientationLocked = orientation != OrientationMode.AUTO,
                 onInteraction = { interactions++ },
                 onClose = onClose,
                 onShowAudio = { panel = Panel.AUDIO },
                 onShowSubtitles = { panel = Panel.SUBTITLES },
-                onTogglePlay = viewModel::togglePlay,
+                onTogglePlay = {
+                    if (!viewModel.stopTrickPlay()) viewModel.togglePlay()
+                },
                 onPrevious = viewModel::previous,
                 onNext = viewModel::next,
                 onSeek = viewModel::seekTo,
@@ -312,6 +448,17 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
 
         indicator?.let { IndicatorBubble(it, Modifier.align(Alignment.Center)) }
 
+        if (trickPlaying) {
+            TrickPlayIndicator(
+                speed = state.trickSpeed,
+                position = { viewModel.positionMs },
+                durationMs = state.durationMs,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp),
+            )
+        }
+
         state.error?.let { message ->
             ErrorMessage(message, onRetry = viewModel::retry, modifier = Modifier.align(Alignment.Center))
         }
@@ -324,12 +471,19 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
             )
         }
 
+        // Focus stays inside an open panel until it is closed.
+        val panelModifier = Modifier
+            .align(Alignment.TopEnd)
+            .onFocusChanged { panelFocused = it.hasFocus }
+            .focusRequester(panelFocus)
+            .focusProperties { onExit = { cancelFocusChange() } }
+            .focusGroup()
         when (panel) {
             Panel.AUDIO -> AudioPanel(
                 tracks = state.audioTracks,
                 onSelect = viewModel::selectAudio,
                 onClose = { panel = Panel.NONE },
-                modifier = Modifier.align(Alignment.TopEnd),
+                modifier = panelModifier,
             )
 
             Panel.SUBTITLES -> SubtitlePanel(
@@ -347,7 +501,7 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
                 },
                 onStyleChange = viewModel.settings::setSubtitleStyle,
                 onClose = { panel = Panel.NONE },
-                modifier = Modifier.align(Alignment.TopEnd),
+                modifier = panelModifier,
             )
 
             Panel.NONE -> Unit
@@ -508,10 +662,16 @@ private fun GestureLayer(
     )
 }
 
+/** The controls the remote control is sent to. */
+private class ControlsFocus(val play: FocusRequester, val audio: FocusRequester, val subtitles: FocusRequester)
+
 @Composable
 private fun Controls(
     state: VideoUiState,
     position: () -> Long,
+    showRotation: Boolean,
+    focus: ControlsFocus,
+    onFocusChange: (Boolean) -> Unit,
     orientationLocked: Boolean,
     onInteraction: () -> Unit,
     onClose: () -> Unit,
@@ -530,7 +690,8 @@ private fun Controls(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.45f))
-                .windowInsetsPadding(WindowInsets.safeDrawing),
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .onFocusChanged { onFocusChange(it.hasFocus) },
         ) {
             Row(
                 modifier = Modifier
@@ -539,7 +700,7 @@ private fun Controls(
                     .padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onClose) {
+                IconButton(onClick = onClose, modifier = Modifier.focusFrame(CircleShape, Color.White)) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
                 }
                 Text(
@@ -551,10 +712,20 @@ private fun Controls(
                         .weight(1f)
                         .padding(horizontal = 4.dp),
                 )
-                IconButton(onClick = onShowAudio) {
+                IconButton(
+                    onClick = onShowAudio,
+                    modifier = Modifier
+                        .focusRequester(focus.audio)
+                        .focusFrame(CircleShape, Color.White),
+                ) {
                     Icon(Icons.Rounded.Audiotrack, stringResource(R.string.video_audio_tracks))
                 }
-                IconButton(onClick = onShowSubtitles) {
+                IconButton(
+                    onClick = onShowSubtitles,
+                    modifier = Modifier
+                        .focusRequester(focus.subtitles)
+                        .focusFrame(CircleShape, Color.White),
+                ) {
                     Icon(Icons.Rounded.Subtitles, stringResource(R.string.video_subtitles))
                 }
             }
@@ -566,14 +737,25 @@ private fun Controls(
                     horizontalArrangement = Arrangement.spacedBy(28.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { onInteraction(); onPrevious() }, modifier = Modifier.size(56.dp)) {
+                    IconButton(
+                        onClick = { onInteraction(); onPrevious() },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .focusFrame(CircleShape, Color.White),
+                    ) {
                         Icon(
                             Icons.Rounded.SkipPrevious,
                             stringResource(R.string.cd_previous),
                             modifier = Modifier.size(36.dp),
                         )
                     }
-                    FilledIconButton(onClick = { onInteraction(); onTogglePlay() }, modifier = Modifier.size(72.dp)) {
+                    FilledIconButton(
+                        onClick = { onInteraction(); onTogglePlay() },
+                        modifier = Modifier
+                            .size(72.dp)
+                            .focusRequester(focus.play)
+                            .focusFrame(CircleShape, Color.White),
+                    ) {
                         Icon(
                             imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = stringResource(if (state.isPlaying) R.string.cd_pause else R.string.cd_play),
@@ -583,7 +765,9 @@ private fun Controls(
                     IconButton(
                         onClick = { onInteraction(); onNext() },
                         enabled = state.hasNext,
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier
+                            .size(56.dp)
+                            .focusFrame(CircleShape, Color.White),
                     ) {
                         Icon(
                             Icons.Rounded.SkipNext,
@@ -602,25 +786,30 @@ private fun Controls(
             ) {
                 SeekRow(state.durationMs, position, onInteraction, onSeek)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onInteraction(); onToggleOrientationLock() }) {
-                        Icon(
-                            imageVector = Icons.Rounded.ScreenLockRotation,
-                            contentDescription = stringResource(
-                                if (orientationLocked) R.string.video_unlock_rotation else R.string.video_lock_rotation,
-                            ),
-                            // Lit while the lock is on, like the shuffle toggle of the music player.
-                            tint = if (orientationLocked) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                Color.White.copy(alpha = 0.6f)
-                            },
-                        )
-                    }
-                    IconButton(onClick = { onInteraction(); onRotate() }) {
-                        Icon(Icons.Rounded.ScreenRotation, stringResource(R.string.video_rotate))
+                    if (showRotation) {
+                        IconButton(onClick = { onInteraction(); onToggleOrientationLock() }) {
+                            Icon(
+                                imageVector = Icons.Rounded.ScreenLockRotation,
+                                contentDescription = stringResource(
+                                    if (orientationLocked) R.string.video_unlock_rotation else R.string.video_lock_rotation,
+                                ),
+                                // Lit while the lock is on, like the shuffle toggle of the music player.
+                                tint = if (orientationLocked) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.White.copy(alpha = 0.6f)
+                                },
+                            )
+                        }
+                        IconButton(onClick = { onInteraction(); onRotate() }) {
+                            Icon(Icons.Rounded.ScreenRotation, stringResource(R.string.video_rotate))
+                        }
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { onInteraction(); onCycleResize() }) {
+                    IconButton(
+                        onClick = { onInteraction(); onCycleResize() },
+                        modifier = Modifier.focusFrame(CircleShape, Color.White),
+                    ) {
                         Icon(Icons.Rounded.AspectRatio, stringResource(R.string.video_resize))
                     }
                 }
@@ -664,7 +853,15 @@ private fun SeekRow(durationMs: Long, position: () -> Long, onInteraction: () ->
             enabled = durationMs > 0,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 12.dp)
+                .focusFrame(RoundedCornerShape(50), Color.White)
+                // On the remote control the arrows skip like they do with the controls hidden.
+                .remoteSlider { direction ->
+                    onInteraction()
+                    val targetMs = (position() + direction * SEEK_STEP_MS).coerceIn(0, durationMs)
+                    positionMs = targetMs
+                    onSeek(targetMs)
+                },
         )
         Text(text = formatTime(durationMs), style = MaterialTheme.typography.labelMedium)
     }
@@ -688,6 +885,47 @@ private fun IndicatorBubble(indicator: Indicator, modifier: Modifier = Modifier)
                 Text(indicator.text, style = MaterialTheme.typography.titleMedium)
             }
         }
+    }
+}
+
+/** Speed and position while fast forwarding or rewinding, e.g. "8× 0:42:10 / 1:45:00". */
+@Composable
+private fun TrickPlayIndicator(speed: Int, position: () -> Long, durationMs: Long, modifier: Modifier = Modifier) {
+    var positionMs by remember { mutableLongStateOf(position()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            positionMs = position()
+            delay(100)
+        }
+    }
+    val time = if (durationMs > 0) formatTime(positionMs) + " / " + formatTime(durationMs) else formatTime(positionMs)
+    IndicatorBubble(
+        Indicator(
+            icon = if (speed < 0) Icons.Rounded.FastRewind else Icons.Rounded.FastForward,
+            text = "${abs(speed)}×  $time",
+        ),
+        modifier,
+    )
+}
+
+/**
+ * Keys for a slider on a remote control: left and right call [onStep] with -1 or 1, up and
+ * down move on to the next control. A slider would otherwise keep all four arrows to itself,
+ * and nobody could get past it.
+ */
+private fun Modifier.remoteSlider(onStep: (direction: Int) -> Unit): Modifier = composed {
+    val focusManager = LocalFocusManager.current
+    val currentOnStep by rememberUpdatedState(onStep)
+    onPreviewKeyEvent { event ->
+        val down = event.type == KeyEventType.KeyDown
+        when (event.key) {
+            Key.DirectionLeft -> if (down) currentOnStep(-1)
+            Key.DirectionRight -> if (down) currentOnStep(1)
+            Key.DirectionUp -> if (down) focusManager.moveFocus(FocusDirection.Up)
+            Key.DirectionDown -> if (down) focusManager.moveFocus(FocusDirection.Down)
+            else -> return@onPreviewKeyEvent false
+        }
+        true
     }
 }
 
@@ -791,7 +1029,12 @@ private fun SubtitlePanel(
                 onClick = { onSelect(track) },
             )
         }
-        TextButton(onClick = onOpenFile, modifier = Modifier.padding(horizontal = 8.dp)) {
+        TextButton(
+            onClick = onOpenFile,
+            modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .focusFrame(),
+        ) {
             Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.video_subtitle_open_file))
@@ -833,6 +1076,7 @@ private fun SubtitlePanel(
                             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                             shape = CircleShape,
                         )
+                        .focusFrame(CircleShape, MaterialTheme.colorScheme.onSurface)
                         .clickable { onStyleChange(style.copy(color = color)) },
                 )
             }
@@ -841,6 +1085,7 @@ private fun SubtitlePanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .focusFrame()
                 .clickable { onStyleChange(style.copy(background = !style.background)) }
                 .padding(horizontal = 20.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -884,7 +1129,7 @@ private fun SettingsPanel(
                         .weight(1f)
                         .padding(start = 20.dp),
                 )
-                IconButton(onClick = onClose) {
+                IconButton(onClick = onClose, modifier = Modifier.focusFrame(CircleShape)) {
                     Icon(Icons.Rounded.Close, stringResource(R.string.action_close))
                 }
             }
@@ -898,6 +1143,7 @@ private fun TrackRow(label: String, selected: Boolean, onClick: () -> Unit, enab
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .focusFrame()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -925,6 +1171,16 @@ private fun LabeledSlider(
 ) {
     Column(Modifier.padding(horizontal = 20.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge)
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            modifier = Modifier
+                .focusFrame(RoundedCornerShape(50))
+                .remoteSlider { direction ->
+                    val step = (range.endInclusive - range.start) / SLIDER_STEPS
+                    onChange((value + direction * step).coerceIn(range))
+                },
+        )
     }
 }

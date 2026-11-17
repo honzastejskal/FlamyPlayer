@@ -2,6 +2,7 @@ package io.github.flamy69.flamyplayer.video
 
 import android.app.Application
 import android.net.Uri
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,6 +12,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
@@ -21,6 +23,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -70,6 +73,8 @@ data class VideoUiState(
     val notice: String? = null,
     /** Why playback stopped. */
     val error: String? = null,
+    /** Fast forward or rewind with the remote control, see [TrickPlay]. */
+    val trickSpeed: Int = TrickPlay.NORMAL,
 )
 
 /**
@@ -96,6 +101,12 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     private var loadJob: Job? = null
     private var session: MediaSession? = null
+
+    private val trickPlay = TrickPlay()
+    private var trickJob: Job? = null
+
+    /** Whether the sound was switched off because it could not keep up with double speed. */
+    private var trickMuted = false
 
     val player: ExoPlayer = ExoPlayer.Builder(app, MediaRenderersFactory(app))
         .setMediaSourceFactory(
@@ -132,7 +143,10 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val _cues = MutableStateFlow<List<Cue>>(emptyList())
     val cues: StateFlow<List<Cue>> = _cues.asStateFlow()
 
-    val positionMs: Long get() = player.currentPosition
+    /** While jumping, where the jumps have got to, even if the picture lags behind. */
+    private var trickPositionMs: Long? = null
+
+    val positionMs: Long get() = trickPositionMs ?: player.currentPosition
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -162,6 +176,20 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
                     subtitleTracks = options(tracks, C.TRACK_TYPE_TEXT),
                     notice = unsupportedNotice(tracks) ?: it.notice,
                 )
+            }
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            // Sound that is passed through to the TV or the receiver as it is (AC3, DTS) cannot
+            // be played faster, and the player falls back to normal speed. Double speed then
+            // goes on without sound.
+            val wanted = trickPlay.speed.toFloat()
+            if (trickPlay.isActive && trickPlay.isRealPlayback && playbackParameters.speed != wanted && !trickMuted) {
+                trickMuted = true
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                    .build()
+                player.setPlaybackSpeed(wanted)
             }
         }
 
@@ -218,6 +246,30 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun seekTo(positionMs: Long) = player.seekTo(positionMs)
+
+    /** One step up the ladder of fast forward speeds, or down the one of rewind speeds. */
+    fun fastForward() {
+        if (canTrickPlay()) {
+            trickPlay.fastForward()
+            applyTrickSpeed()
+        }
+    }
+
+    /** One step up the ladder of rewind speeds, or down the one of fast forward speeds. */
+    fun rewind() {
+        if (canTrickPlay()) {
+            trickPlay.rewind()
+            applyTrickSpeed()
+        }
+    }
+
+    /** Back to normal playback after fast forward or rewind. Returns whether there was any. */
+    fun stopTrickPlay(): Boolean {
+        if (!trickPlay.isActive) return false
+        trickPlay.stop()
+        applyTrickSpeed()
+        return true
+    }
 
     fun seekBy(deltaMs: Long) {
         val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE
@@ -295,6 +347,7 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The player screen is no longer visible: a video does not keep playing in the background. */
     fun onStop() {
+        resetTrickPlay()
         player.pause()
         savePosition()
         session?.release()
@@ -315,6 +368,7 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         val item = items[index]
 
         loadJob?.cancel()
+        resetTrickPlay()
         player.stop()
         player.clearMediaItems()
         pendingSubtitleLabel = null
@@ -369,6 +423,77 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         player.setMediaItem(mediaItem, positionMs)
         player.prepare()
         player.play()
+    }
+
+    private fun canTrickPlay(): Boolean =
+        player.currentMediaItem != null && _state.value.error == null && player.playbackState != Player.STATE_ENDED
+
+    /**
+     * Makes the player follow [trickPlay]. Normal and double speed are played by the player
+     * itself. Anything else jumps from key frame to key frame, paused and without sound. A jump
+     * only starts once the previous one has arrived, so that a slow network shows fewer
+     * pictures, but the position still moves at the chosen speed.
+     */
+    private fun applyTrickSpeed() {
+        trickJob?.cancel()
+        trickJob = null
+        trickPositionMs = null
+        val speed = trickPlay.speed
+        _state.update { it.copy(trickSpeed = speed) }
+        if (trickPlay.isRealPlayback) {
+            player.setSeekParameters(SeekParameters.DEFAULT)
+            player.volume = 1f
+            if (!trickPlay.isActive) restoreSound()
+            player.setPlaybackSpeed(speed.toFloat())
+            player.play()
+            return
+        }
+        player.setPlaybackSpeed(1f)
+        player.volume = 0f
+        player.pause()
+        player.setSeekParameters(if (speed < 0) SeekParameters.PREVIOUS_SYNC else SeekParameters.CLOSEST_SYNC)
+        trickJob = viewModelScope.launch {
+            var target = player.currentPosition
+            var last = SystemClock.elapsedRealtime()
+            while (isActive) {
+                delay(TRICK_STEP_MS)
+                val now = SystemClock.elapsedRealtime()
+                target = trickPlay.advance(target, now - last, _state.value.durationMs)
+                trickPositionMs = target
+                last = now
+                if (trickPlay.hasReachedLimit(target, _state.value.durationMs)) {
+                    // At the start or near the end: carry on from there at normal speed.
+                    player.seekTo(target)
+                    trickPlay.stop()
+                    applyTrickSpeed()
+                } else if (player.playbackState != Player.STATE_BUFFERING) {
+                    player.seekTo(target)
+                }
+            }
+        }
+    }
+
+    /** Leaves fast forward or rewind without starting playback: for another video, or on leaving. */
+    private fun resetTrickPlay() {
+        if (!trickPlay.isActive) return
+        trickJob?.cancel()
+        trickJob = null
+        trickPositionMs = null
+        trickPlay.stop()
+        player.setSeekParameters(SeekParameters.DEFAULT)
+        player.volume = 1f
+        restoreSound()
+        player.setPlaybackSpeed(1f)
+        _state.update { it.copy(trickSpeed = TrickPlay.NORMAL) }
+    }
+
+    /** Switches the sound back on if double speed had to switch it off. */
+    private fun restoreSound() {
+        if (!trickMuted) return
+        trickMuted = false
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .build()
     }
 
     private fun selectPendingSubtitle(tracks: Tracks) {
@@ -486,6 +611,9 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         private const val RESTART_THRESHOLD_MS = 3_000L
         private const val START_MARGIN_MS = 10_000L
         private const val END_MARGIN_MS = 15_000L
+
+        /** How often fast forward and rewind jump, unless the network is slower. */
+        private const val TRICK_STEP_MS = 250L
 
         fun networkErrorText(reason: SmbException.Reason): Int = when (reason) {
             SmbException.Reason.UNKNOWN_HOST -> R.string.network_error_unknown_host
