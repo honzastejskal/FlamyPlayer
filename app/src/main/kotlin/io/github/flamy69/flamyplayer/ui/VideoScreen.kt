@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -61,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -160,7 +162,7 @@ private fun VideoHome(
                             .size(20.dp),
                     )
                 } else {
-                    IconButton(onClick = searchNetwork) {
+                    IconButton(onClick = searchNetwork, modifier = Modifier.focusFrame(CircleShape)) {
                         Icon(
                             Icons.Rounded.Refresh,
                             stringResource(R.string.video_find_devices),
@@ -178,7 +180,7 @@ private fun VideoHome(
                 onClick = { openServer(server) },
                 modifier = focusHere(browser.serverKey(server.id)),
                 trailing = {
-                    IconButton(onClick = { onEditServer(server) }) {
+                    IconButton(onClick = { onEditServer(server) }, modifier = Modifier.focusFrame(CircleShape)) {
                         Icon(
                             Icons.Rounded.Edit,
                             stringResource(R.string.action_edit),
@@ -267,7 +269,7 @@ private fun VideoHome(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.size(12.dp))
-                    FilledTonalButton(onClick = askForVideos) {
+                    FilledTonalButton(onClick = askForVideos, modifier = Modifier.focusFrame(RoundedCornerShape(50))) {
                         Text(stringResource(R.string.permission_button))
                     }
                 }
@@ -503,6 +505,7 @@ fun ServerDialog(
     var password by rememberSaveable { mutableStateOf("") }
     var addressInvalid by rememberSaveable { mutableStateOf(false) }
 
+    val nameFocus = remember { FocusRequester() }
     val plainText = KeyboardOptions(
         capitalization = KeyboardCapitalization.None,
         autoCorrectEnabled = false,
@@ -536,7 +539,9 @@ fun ServerDialog(
                     isError = addressInvalid,
                     singleLine = true,
                     keyboardOptions = plainText.copy(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .leaveWithUpDown(),
                 )
                 OutlinedTextField(
                     value = user,
@@ -545,7 +550,9 @@ fun ServerDialog(
                     supportingText = { Text(stringResource(R.string.network_user_hint)) },
                     singleLine = true,
                     keyboardOptions = plainText,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .leaveWithUpDown(),
                 )
                 OutlinedTextField(
                     value = password,
@@ -575,7 +582,11 @@ fun ServerDialog(
                         }
                     },
                     keyboardOptions = plainText.copy(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .leaveWithUpDown()
+                        // "Next" on the keyboard goes on to the name, not to the eye button.
+                        .focusProperties { next = nameFocus },
                 )
                 Spacer(Modifier.size(8.dp))
                 OutlinedTextField(
@@ -584,7 +595,10 @@ fun ServerDialog(
                     label = { Text(stringResource(R.string.network_name)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .leaveWithUpDown()
+                        .focusRequester(nameFocus),
                 )
             }
         },
@@ -593,6 +607,7 @@ fun ServerDialog(
                 onClick = {
                     if (onSave(name, address, user, password)) onDismiss() else addressInvalid = true
                 },
+                modifier = Modifier.focusFrame(RoundedCornerShape(50)),
             ) {
                 Text(stringResource(R.string.action_save))
             }
@@ -605,11 +620,14 @@ fun ServerDialog(
                             onRemove()
                             onDismiss()
                         },
+                        modifier = Modifier.focusFrame(RoundedCornerShape(50)),
                     ) {
                         Text(stringResource(R.string.action_remove), color = MaterialTheme.colorScheme.error)
                     }
                 }
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+                TextButton(onClick = onDismiss, modifier = Modifier.focusFrame(RoundedCornerShape(50))) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             }
         },
     )
@@ -712,6 +730,7 @@ private fun BrowserRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .focusFrame()
             .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

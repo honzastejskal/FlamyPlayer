@@ -103,6 +103,7 @@ fun MusicScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .focusFrame()
                             .clickable(onClick = onOpenPlaylists)
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -178,6 +179,7 @@ fun TrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .focusFrame()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

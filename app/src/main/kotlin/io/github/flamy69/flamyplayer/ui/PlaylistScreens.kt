@@ -70,6 +70,7 @@ fun PlaylistsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusFrame()
                         .clickable { onOpen(playlist) }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,

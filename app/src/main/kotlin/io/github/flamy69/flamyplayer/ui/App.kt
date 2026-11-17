@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -282,38 +283,41 @@ private fun HomeScreen(
                 },
                 navigationIcon = {
                     if (insideVideoFolder) {
-                        IconButton(onClick = { viewModel.video.up() }) {
+                        IconButton(onClick = { viewModel.video.up() }, modifier = Modifier.focusFrame(CircleShape)) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
                         }
                     }
                 },
                 actions = {
                     if (searchActive) {
-                        IconButton(onClick = closeSearch) {
+                        IconButton(onClick = closeSearch, modifier = Modifier.focusFrame(CircleShape)) {
                             Icon(Icons.Rounded.Close, stringResource(R.string.action_close))
                         }
                     } else if (section == Section.VIDEO) {
                         when (videoLocation) {
-                            VideoLocation.Home -> IconButton(onClick = { newServerAddress = "" }) {
+                            VideoLocation.Home -> IconButton(
+                                onClick = { newServerAddress = "" },
+                                modifier = Modifier.focusFrame(CircleShape),
+                            ) {
                                 Icon(Icons.Rounded.Add, stringResource(R.string.video_add_network))
                             }
                             is VideoLocation.Network, is VideoLocation.Stream ->
-                                IconButton(onClick = viewModel.video::reload) {
+                                IconButton(onClick = viewModel.video::reload, modifier = Modifier.focusFrame(CircleShape)) {
                                     Icon(Icons.Rounded.Refresh, stringResource(R.string.action_refresh))
                                 }
                             is VideoLocation.Device -> Unit
                         }
                     } else if (section == Section.RADIO) {
-                        IconButton(onClick = { searching = true }) {
+                        IconButton(onClick = { searching = true }, modifier = Modifier.focusFrame(CircleShape)) {
                             Icon(Icons.Rounded.Search, stringResource(R.string.action_search))
                         }
                     } else if (hasPermission) {
                         if (section == Section.MUSIC) {
-                            IconButton(onClick = { searching = true }) {
+                            IconButton(onClick = { searching = true }, modifier = Modifier.focusFrame(CircleShape)) {
                                 Icon(Icons.Rounded.Search, stringResource(R.string.action_search))
                             }
                         }
-                        IconButton(onClick = onChooseFolders) {
+                        IconButton(onClick = onChooseFolders, modifier = Modifier.focusFrame(CircleShape)) {
                             Icon(Icons.Rounded.FolderOpen, stringResource(R.string.action_choose_folders))
                         }
                     }
@@ -325,24 +329,28 @@ private fun HomeScreen(
                 miniPlayer()
                 NavigationBar {
                     NavigationBarItem(
+                        modifier = Modifier.focusFrame(),
                         selected = section == Section.MUSIC,
                         onClick = { onSectionChange(Section.MUSIC) },
                         icon = { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
                         label = { Text(stringResource(R.string.tab_music)) },
                     )
                     NavigationBarItem(
+                        modifier = Modifier.focusFrame(),
                         selected = section == Section.BOOKS,
                         onClick = { onSectionChange(Section.BOOKS) },
                         icon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null) },
                         label = { Text(stringResource(R.string.tab_audiobooks)) },
                     )
                     NavigationBarItem(
+                        modifier = Modifier.focusFrame(),
                         selected = section == Section.VIDEO,
                         onClick = { onSectionChange(Section.VIDEO) },
                         icon = { Icon(Icons.Rounded.Movie, contentDescription = null) },
                         label = { Text(stringResource(R.string.tab_video)) },
                     )
                     NavigationBarItem(
+                        modifier = Modifier.focusFrame(),
                         selected = section == Section.RADIO,
                         onClick = { onSectionChange(Section.RADIO) },
                         icon = { Icon(Icons.Rounded.Radio, contentDescription = null) },

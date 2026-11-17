@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Star
@@ -111,6 +112,7 @@ private fun StationRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .focusFrame()
             .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -147,7 +149,7 @@ private fun StationRow(
                 )
             }
         }
-        IconButton(onClick = onToggleFavorite) {
+        IconButton(onClick = onToggleFavorite, modifier = Modifier.focusFrame(CircleShape)) {
             Icon(
                 imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                 contentDescription = stringResource(

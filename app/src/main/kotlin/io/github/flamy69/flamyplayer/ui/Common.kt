@@ -169,7 +169,7 @@ fun EmptyState(
         )
         if (buttonText != null) {
             Spacer(Modifier.height(24.dp))
-            Button(onClick = onButtonClick) { Text(buttonText) }
+            Button(onClick = onButtonClick, modifier = Modifier.focusFrame(RoundedCornerShape(50))) { Text(buttonText) }
         }
         if (detail != null) {
             Spacer(Modifier.height(24.dp))

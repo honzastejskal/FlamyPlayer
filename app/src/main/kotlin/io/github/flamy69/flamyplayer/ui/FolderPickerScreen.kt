@@ -222,6 +222,7 @@ private fun FolderRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .focusFrame()
             .clickable(onClick = onOpen)
             .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,

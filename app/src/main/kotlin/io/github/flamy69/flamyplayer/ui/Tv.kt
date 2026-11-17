@@ -15,11 +15,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -73,6 +80,23 @@ fun FocusOnShow(key: Any?, requester: FocusRequester, listState: LazyListState? 
 
 private const val FOCUS_ATTEMPTS = 20
 private const val FOCUS_RETRY_MS = 100L
+
+/**
+ * On a TV, lets up and down leave a single line text field like any other element. The field
+ * would keep these arrows for its cursor, and the remote control has no other way out.
+ */
+fun Modifier.leaveWithUpDown(): Modifier = composed {
+    if (!rememberIsTv()) return@composed this
+    val focusManager = LocalFocusManager.current
+    onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (event.key) {
+            Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+            Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+            else -> false
+        }
+    }
+}
 
 /** Asks for focus; false when the element is not on screen (yet), which is no error here. */
 fun FocusRequester.tryRequestFocus(): Boolean = try {
