@@ -22,11 +22,21 @@
     <!-- Tells which network the phone's Wi-Fi is on, to look for shared folders there. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- The same app runs on Android TV, driven by the remote control. Neither the TV
+         interface nor a touchscreen is required, so phones and TVs both get it. -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
     <!-- Plain HTTP is what media servers on a home network (DLNA) speak, and what many radio
          stations still stream over. -->
     <application
         android:name=".FlamyApp"
         android:allowBackup="true"
+        android:banner="@drawable/tv_banner"
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -42,6 +52,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- The row of apps on the home screen of a TV. -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
             <!-- "Play ... on FlamyPlayer", said to the assistant on the phone. In the car the
                  same wish goes to the playback service directly. -->
