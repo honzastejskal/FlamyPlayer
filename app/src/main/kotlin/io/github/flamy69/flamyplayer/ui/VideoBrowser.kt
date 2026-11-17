@@ -82,7 +82,12 @@ sealed interface Discovery {
 
     /** The phone is not on Wi-Fi, so there is no local network to search. */
     data object NoWifi : Discovery
-    class Done(val devices: List<FoundDevice>, val mediaServers: List<MediaServer>) : Discovery
+    class Done(
+        val devices: List<FoundDevice>,
+        val mediaServers: List<MediaServer>,
+        /** The network is bigger than a home one; searching all of it may find more. */
+        val canSearchWide: Boolean = false,
+    ) : Discovery
 }
 
 /** Access to devices on the local network needs the user's consent from Android 17 on. */
@@ -126,6 +131,13 @@ class VideoBrowser(private val app: FlamyApp, private val scope: CoroutineScope)
 
     private var discoveryJob: Job? = null
 
+    private val _wideProgress = MutableStateFlow<Float?>(null)
+
+    /** How far the search of the whole network has got, from 0 to 1; `null` while none runs. */
+    val wideProgress: StateFlow<Float?> = _wideProgress.asStateFlow()
+
+    private var wideJob: Job? = null
+
     /**
      * After going up: the key of the line that leads back to the folder that was left, so that
      * the remote control of a TV can carry on from there. `null` after going down.
@@ -156,6 +168,7 @@ class VideoBrowser(private val app: FlamyApp, private val scope: CoroutineScope)
     fun discover(again: Boolean = false) {
         if (discoveryJob?.isActive == true) return
         if (!again && _discovery.value != Discovery.Idle) return
+        stopWideSearch()
         _discovery.value = Discovery.Searching
         discoveryJob = scope.launch {
             val found = try {
@@ -171,9 +184,43 @@ class VideoBrowser(private val app: FlamyApp, private val scope: CoroutineScope)
                 Discovery.Done(
                     devices = found.devices.sortedWith(compareBy(NaturalOrder) { it.host }),
                     mediaServers = found.mediaServers.sortedWith(compareBy(NaturalOrder) { it.name }),
+                    canSearchWide = app.localNetwork.canSearchWide(),
                 )
             }
         }
+    }
+
+    /**
+     * Searches every address of a big network, which takes a minute or two; what it finds is
+     * added to what the quick search found. Called again while it runs, stops it.
+     */
+    fun searchWide() {
+        if (wideJob?.isActive == true) {
+            stopWideSearch()
+            return
+        }
+        if (_discovery.value !is Discovery.Done) return
+        _wideProgress.value = 0f
+        wideJob = scope.launch {
+            try {
+                val more = app.localNetwork.scanWide { _wideProgress.value = it }
+                val current = _discovery.value as? Discovery.Done ?: return@launch
+                _discovery.value = Discovery.Done(
+                    devices = (current.devices + more).distinctBy { it.address }
+                        .sortedWith(compareBy(NaturalOrder) { it.host }),
+                    mediaServers = current.mediaServers,
+                    canSearchWide = current.canSearchWide,
+                )
+            } finally {
+                _wideProgress.value = null
+            }
+        }
+    }
+
+    private fun stopWideSearch() {
+        wideJob?.cancel()
+        wideJob = null
+        _wideProgress.value = null
     }
 
     fun openFolder(folder: VideoFolder) {

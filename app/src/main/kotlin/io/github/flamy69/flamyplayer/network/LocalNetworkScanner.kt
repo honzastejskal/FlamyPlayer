@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.Inet4Address
@@ -34,6 +35,17 @@ object Subnet {
         return (1 until size - 1).map { network + it }.filter { it != address }
     }
 
+    /**
+     * Every address of the network, for searching it all. A network bigger than 65 534
+     * addresses is narrowed to the part of that size around [address].
+     */
+    fun whole(address: Int, prefixLength: Int): List<Int> {
+        val prefix = prefixLength.coerceIn(WIDEST_PREFIX, 30)
+        val network = address and mask(prefix)
+        val size = 1 shl (32 - prefix)
+        return (1 until size - 1).map { network + it }.filter { it != address }
+    }
+
     /** Whether [other] lies in the network of [address]. */
     fun contains(address: Int, prefixLength: Int, other: Int): Boolean =
         (address and mask(prefixLength)) == (other and mask(prefixLength))
@@ -45,6 +57,7 @@ object Subnet {
     }
 
     private const val BLOCK_PREFIX = 24
+    private const val WIDEST_PREFIX = 16
 
     fun toInt(address: Inet4Address): Int =
         address.address.fold(0) { result, byte -> (result shl 8) or (byte.toInt() and 0xFF) }
@@ -117,6 +130,32 @@ class LocalNetworkScanner(context: Context) {
             device.name?.let { known[it.uppercase()] = device.address }
         }
         return found
+    }
+
+    /** Whether the network is bigger than a home one, so that [scanWide] finds more than [scan]. */
+    fun canSearchWide(): Boolean = wifi()?.let { it.prefixLength < FAR_PREFIX_LIMIT } == true
+
+    /**
+     * Tries the file sharing port of every address of a network bigger than a home one. Goes a
+     * batch at a time, so that neither the device nor the network is flooded: a minute or two
+     * for the 65 534 addresses of a big home network. Reports how far it is, from 0 to 1.
+     */
+    suspend fun scanWide(onProgress: (Float) -> Unit): List<FoundDevice> {
+        val wifi = wifi() ?: return emptyList()
+        val all = Subnet.whole(wifi.address, wifi.prefixLength)
+        val devices = withContext(Dispatchers.IO) {
+            val open = ArrayList<InetAddress>()
+            all.chunked(WIDE_BATCH).forEachIndexed { index, batch ->
+                ensureActive()
+                open += PortScan.open(batch.map(Subnet::toAddress), SMB_PORT, WIDE_TIMEOUT_MS)
+                onProgress(((index + 1) * WIDE_BATCH).coerceAtMost(all.size).toFloat() / all.size)
+            }
+            open.map { target -> async { describe(target) } }.awaitAll()
+        }
+        for (device in devices) {
+            device.name?.let { known[it.uppercase()] = device.address }
+        }
+        return devices
     }
 
     /**
@@ -215,6 +254,12 @@ class LocalNetworkScanner(context: Context) {
 
         /** Two more neighborhoods at most, so that the search does not take much longer. */
         const val FAR_ADDRESSES_MAX = 2 * 254
+
+        /** Addresses tried at once when searching a whole network; the device keeps up. */
+        const val WIDE_BATCH = 512
+
+        /** A wired or awake device answers within this; it keeps the whole search short. */
+        const val WIDE_TIMEOUT_MS = 800
         val IPV4 = Regex("""\d{1,3}(\.\d{1,3}){3}""")
     }
 }

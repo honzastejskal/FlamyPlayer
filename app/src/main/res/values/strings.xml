@@ -85,6 +85,10 @@
     <string name="video_add_network">Add network folder</string>
     <string name="video_add_network_hint">Enter the address of a computer or a NAS yourself</string>
     <string name="video_find_devices">Search the network</string>
+    <string name="video_find_wide">Search the whole network</string>
+    <string name="video_find_wide_hint">Your network is big; this tries every address and takes a minute or two</string>
+    <string name="video_find_wide_running">Searching the whole network… %1$d %%</string>
+    <string name="video_find_wide_stop">Select to stop</string>
     <string name="video_found_searching">Looking for computers, NAS boxes and media streams on your network…</string>
     <string name="video_found_none">Nothing was found on your network. A computer shows up here when it shares a folder or has media streaming switched on, and its firewall allows that.</string>
     <string name="video_found_no_wifi">Connect this device to your home network, by Wi-Fi or cable, to see the computers and NAS boxes on it.</string>

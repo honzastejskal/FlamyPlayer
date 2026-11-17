@@ -83,6 +83,10 @@
     <string name="video_add_network">Přidat síťovou složku</string>
     <string name="video_add_network_hint">Zadat adresu počítače nebo NASu ručně</string>
     <string name="video_find_devices">Prohledat síť</string>
+    <string name="video_find_wide">Prohledat celou síť</string>
+    <string name="video_find_wide_hint">Vaše síť je velká; zkusí se každá adresa, trvá to minutu nebo dvě</string>
+    <string name="video_find_wide_running">Prohledávám celou síť… %1$d %%</string>
+    <string name="video_find_wide_stop">Vyberte pro zastavení</string>
     <string name="video_found_searching">Hledám počítače, NASy a proudy médií ve vaší síti…</string>
     <string name="video_found_none">Ve vaší síti se nic nenašlo. Počítač se zde objeví, když sdílí složku nebo má zapnutý proud médií a jeho firewall to povoluje.</string>
     <string name="video_found_no_wifi">Připojte toto zařízení k domácí síti přes Wi-Fi nebo kabelem, aby bylo možné najít počítače a NASy v ní.</string>

@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +28,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.runtime.DisposableEffect
+import android.view.WindowManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -84,35 +87,72 @@ private const val FOCUS_ATTEMPTS = 20
 private const val FOCUS_RETRY_MS = 100L
 
 /**
- * On a TV, lets up and down leave a single line text field like any other element. The field
- * would keep these arrows for its cursor, and the remote control has no other way out.
+ * Which text field of a dialog is being written in on a TV. A text field opens the keyboard as
+ * soon as it gets focus, also the first field of a dialog by itself, and some TV keyboards
+ * cover half the screen and keep the arrows: the remote control would be trapped. So on a TV
+ * the fields are read only, which keeps the keyboard away, until OK is pressed on one.
  */
-fun Modifier.leaveWithUpDown(): Modifier = composed {
+class TvTextFields {
+    var editing: Any? by mutableStateOf(null)
+
+    /** Whether the field [key] is read only for now; never on a phone. */
+    fun readOnly(isTv: Boolean, key: Any): Boolean = isTv && editing != key
+}
+
+@Composable
+fun rememberTvTextFields(): TvTextFields = remember { TvTextFields() }
+
+/**
+ * On a TV: OK on the text field [key] makes it writable and opens the keyboard; leaving the
+ * field makes it read only again. Up and down leave the field like any other element; the
+ * field would keep these arrows for its cursor.
+ */
+fun Modifier.tvTextField(fields: TvTextFields, key: Any): Modifier = composed {
     if (!rememberIsTv()) return@composed this
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    onPreviewKeyEvent { event ->
-        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        when (event.key) {
-            Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
-            Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
-            // With [forTv] the keyboard only comes when asked for.
-            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                keyboard?.show()
-                keyboard != null
-            }
-            else -> false
+    LaunchedEffect(fields.editing) {
+        if (fields.editing == key) {
+            withFrameNanos { } // writable from the next frame on
+            keyboard?.show()
         }
     }
+    onFocusChanged { if (!it.hasFocus && fields.editing == key) fields.editing = null }
+        .onPreviewKeyEvent { event ->
+            val ok = event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter
+            // Letting go of OK would open the keyboard as well, also when the press opened the
+            // dialog: OK is handled here, when pressed.
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent ok
+            when {
+                event.key == Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+                event.key == Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+                ok -> {
+                    if (fields.editing == key) keyboard?.show() else fields.editing = key
+                    true
+                }
+                else -> false
+            }
+        }
 }
 
 /**
- * On a TV, keeps the keyboard away until OK is pressed on the text field. Some TV keyboards
- * cover half the screen and come straight back after Back while the field has focus, so a
- * field that got focus by itself, or on the way past it, would trap the remote control.
+ * Call inside a dialog with text fields. On a TV, Android itself opens the keyboard whenever a
+ * window with a text field gets focus, the dialog's own first and again after every Back that
+ * closed the keyboard, which traps the remote control in it. This leaves the keyboard to [forTv].
  */
 @Composable
-fun KeyboardOptions.forTv(): KeyboardOptions = if (rememberIsTv()) copy(showKeyboardOnFocus = false) else this
+fun KeyboardOnlyOnRequestInDialog() {
+    if (!rememberIsTv()) return
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window ?: return
+    DisposableEffect(window) {
+        val before = window.attributes.softInputMode
+        window.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                (before and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST),
+        )
+        onDispose { window.setSoftInputMode(before) }
+    }
+}
 
 /** Asks for focus; false when the element is not on screen (yet), which is no error here. */
 fun FocusRequester.tryRequestFocus(): Boolean = try {

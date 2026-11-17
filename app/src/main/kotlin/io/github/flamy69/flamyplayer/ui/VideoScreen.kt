@@ -61,7 +61,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -108,6 +112,7 @@ private fun VideoHome(
 ) {
     val servers by browser.settings.servers.collectAsStateWithLifecycle()
     val discovery by browser.discovery.collectAsStateWithLifecycle()
+    val wideProgress by browser.wideProgress.collectAsStateWithLifecycle()
     val hasPermission by browser.hasPermission.collectAsStateWithLifecycle()
     val folders by browser.folders.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -244,6 +249,23 @@ private fun VideoHome(
                         },
                     )
                 }
+            }
+        }
+        if ((discovery as? Discovery.Done)?.canSearchWide == true) {
+            item(key = "found-wide", contentType = "add") {
+                val progress = wideProgress
+                BrowserRow(
+                    icon = Icons.Rounded.Search,
+                    title = if (progress == null) {
+                        stringResource(R.string.video_find_wide)
+                    } else {
+                        stringResource(R.string.video_find_wide_running, (progress * 100).toInt())
+                    },
+                    subtitle = stringResource(
+                        if (progress == null) R.string.video_find_wide_hint else R.string.video_find_wide_stop,
+                    ),
+                    onClick = browser::searchWide,
+                )
             }
         }
         item(key = ADD_NETWORK_KEY, contentType = "add") {
@@ -506,11 +528,35 @@ fun ServerDialog(
     var addressInvalid by rememberSaveable { mutableStateOf(false) }
 
     val nameFocus = remember { FocusRequester() }
+    val saveFocus = remember { FocusRequester() }
+    // On a TV each field ends with Enter on the keyboard: the keyboard goes away, so that the
+    // remote control can move on with its arrows, and after the last field Save has focus.
+    // Some TV keyboards stay open otherwise and keep the arrows to themselves.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val isTv = rememberIsTv()
+    val fields = rememberTvTextFields()
+    val nextField = if (isTv) {
+        KeyboardActions(onNext = {
+            keyboard?.hide()
+            focusManager.moveFocus(FocusDirection.Next)
+        })
+    } else {
+        KeyboardActions.Default
+    }
+    val lastField = if (isTv) {
+        KeyboardActions(onDone = {
+            keyboard?.hide()
+            saveFocus.tryRequestFocus()
+        })
+    } else {
+        KeyboardActions.Default
+    }
     val plainText = KeyboardOptions(
         capitalization = KeyboardCapitalization.None,
         autoCorrectEnabled = false,
         imeAction = ImeAction.Next,
-    ).forTv()
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -518,6 +564,7 @@ fun ServerDialog(
             Text(stringResource(if (server == null) R.string.network_title_add else R.string.network_title_edit))
         },
         text = {
+            KeyboardOnlyOnRequestInDialog()
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -538,10 +585,12 @@ fun ServerDialog(
                     },
                     isError = addressInvalid,
                     singleLine = true,
+                    readOnly = fields.readOnly(isTv, "address"),
                     keyboardOptions = plainText.copy(keyboardType = KeyboardType.Uri),
+                    keyboardActions = nextField,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .leaveWithUpDown(),
+                        .tvTextField(fields, "address"),
                 )
                 OutlinedTextField(
                     value = user,
@@ -549,10 +598,12 @@ fun ServerDialog(
                     label = { Text(stringResource(R.string.network_user)) },
                     supportingText = { Text(stringResource(R.string.network_user_hint)) },
                     singleLine = true,
+                    readOnly = fields.readOnly(isTv, "user"),
                     keyboardOptions = plainText,
+                    keyboardActions = nextField,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .leaveWithUpDown(),
+                        .tvTextField(fields, "user"),
                 )
                 OutlinedTextField(
                     value = password,
@@ -562,6 +613,7 @@ fun ServerDialog(
                         if (!server?.secret.isNullOrEmpty()) Text(stringResource(R.string.network_password_unchanged))
                     },
                     singleLine = true,
+                    readOnly = fields.readOnly(isTv, "password"),
                     visualTransformation = if (passwordVisible) {
                         VisualTransformation.None
                     } else {
@@ -582,9 +634,10 @@ fun ServerDialog(
                         }
                     },
                     keyboardOptions = plainText.copy(keyboardType = KeyboardType.Password),
+                    keyboardActions = nextField,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .leaveWithUpDown()
+                        .tvTextField(fields, "password")
                         // "Next" on the keyboard goes on to the name, not to the eye button.
                         .focusProperties { next = nameFocus },
                 )
@@ -594,10 +647,12 @@ fun ServerDialog(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.network_name)) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done).forTv(),
+                    readOnly = fields.readOnly(isTv, "name"),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = lastField,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .leaveWithUpDown()
+                        .tvTextField(fields, "name")
                         .focusRequester(nameFocus),
                 )
             }
@@ -607,7 +662,9 @@ fun ServerDialog(
                 onClick = {
                     if (onSave(name, address, user, password)) onDismiss() else addressInvalid = true
                 },
-                modifier = Modifier.focusFrame(RoundedCornerShape(50)),
+                modifier = Modifier
+                    .focusFrame(RoundedCornerShape(50))
+                    .focusRequester(saveFocus),
             ) {
                 Text(stringResource(R.string.action_save))
             }
