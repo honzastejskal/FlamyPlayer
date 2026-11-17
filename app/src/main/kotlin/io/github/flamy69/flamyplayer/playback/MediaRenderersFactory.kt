@@ -3,6 +3,7 @@ package io.github.flamy69.flamyplayer.playback
 import android.content.Context
 import android.os.Handler
 import androidx.annotation.OptIn
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
@@ -10,6 +11,7 @@ import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.VideoRendererEventListener
+import io.github.flamy69.flamyplayer.ui.isTv
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegAudioRenderer
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegLibrary
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoRenderer
@@ -58,8 +60,20 @@ class MediaRenderersFactory(context: Context) : DefaultRenderersFactory(context)
         allowedVideoJoiningTimeMs: Long,
         out: ArrayList<Renderer>,
     ) {
+        // On a TV, older DivX and Xvid films (MPEG-4 Part 2) go to Android's own software decoder
+        // first: the hardware decoders of TV chips fail on many of them (seen on Philips and TCL),
+        // while the software one copes and SD pictures are light work. If it cannot start, the
+        // fallback above still tries the hardware one.
+        val selector = if (!context.isTv) {
+            mediaCodecSelector
+        } else {
+            MediaCodecSelector { mimeType, secure, tunneling ->
+                val all = mediaCodecSelector.getDecoderInfos(mimeType, secure, tunneling)
+                if (mimeType == MimeTypes.VIDEO_MP4V) all.sortedBy { !it.softwareOnly } else all
+            }
+        }
         super.buildVideoRenderers(
-            context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener,
+            context, extensionRendererMode, selector, enableDecoderFallback, eventHandler, eventListener,
             allowedVideoJoiningTimeMs, out,
         )
         if (isFfmpegAvailable) {
