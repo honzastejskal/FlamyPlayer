@@ -16,7 +16,7 @@
     <string name="search_no_results">Dotazu „%1$s“ nic neodpovídá</string>
 
     <string name="permission_title">Přístup ke zvukovým souborům</string>
-    <string name="permission_text">FlamyPlayer potřebuje oprávnění číst zvukové soubory v tomto zařízení. Nic z telefonu nikam neodesílá.</string>
+    <string name="permission_text">FlamyPlayer potřebuje oprávnění číst zvukové soubory v tomto zařízení. Nic z něj nikam neodesílá.</string>
     <string name="permission_button">Povolit přístup</string>
 
     <string name="music_empty_title">Zatím žádné složky s hudbou</string>
@@ -63,7 +63,7 @@
     <string name="cd_hide_password">Skrýt heslo</string>
 
     <string name="playlists_title">Playlisty</string>
-    <string name="video_decoders_missing">Dekodéry přibalené k aplikaci se na tomto telefonu nepodařilo načíst.</string>
+    <string name="video_decoders_missing">Dekodéry přibalené k aplikaci se na tomto zařízení nepodařilo načíst.</string>
     <string name="tab_video">Video</string>
     <string name="tab_radio">Rádio</string>
     <string name="radio_favorites">Oblíbené</string>
@@ -85,9 +85,9 @@
     <string name="video_find_devices">Prohledat síť</string>
     <string name="video_found_searching">Hledám počítače, NASy a proudy médií ve vaší síti…</string>
     <string name="video_found_none">Ve vaší síti se nic nenašlo. Počítač se zde objeví, když sdílí složku nebo má zapnutý proud médií a jeho firewall to povoluje.</string>
-    <string name="video_found_no_wifi">Připojte telefon k Wi-Fi, aby bylo možné najít počítače a NASy ve vaší síti.</string>
+    <string name="video_found_no_wifi">Připojte toto zařízení k domácí síti přes Wi-Fi nebo kabelem, aby bylo možné najít počítače a NASy v ní.</string>
     <string name="video_media_server">Proud médií</string>
-    <string name="stream_error">Server s proudem médií neodpověděl podle očekávání. Zkontrolujte, že je počítač zapnutý a že má tento telefon proud médií povolený.</string>
+    <string name="stream_error">Server s proudem médií neodpověděl podle očekávání. Zkontrolujte, že je počítač zapnutý a že má toto zařízení proud médií povolený.</string>
     <string name="video_permission_text">FlamyPlayer potřebuje oprávnění, aby viděl videa v tomto zařízení.</string>
     <string name="video_none_on_device">V tomto zařízení nebyla nalezena žádná videa.</string>
     <string name="video_folder_empty_title">Žádná videa</string>
@@ -107,7 +107,7 @@
     <string name="network_permission_text">FlamyPlayer potřebuje oprávnění připojovat se k zařízením v místní síti.</string>
     <string name="network_error_title">Složku se nepodařilo otevřít</string>
     <string name="network_error_unknown_host">Zařízení s tímto názvem se v síti nepodařilo najít. Zkontrolujte název, nebo místo něj zadejte IP adresu zařízení.</string>
-    <string name="network_error_unreachable">Počítač nebo NAS neodpovídá. Zkontrolujte, že je zapnutý, že je telefon na stejné Wi-Fi a že jeho firewall povoluje sdílení souborů.</string>
+    <string name="network_error_unreachable">Počítač nebo NAS neodpovídá. Zkontrolujte, že je zapnutý, že je toto zařízení ve stejné síti a že firewall počítače povoluje sdílení souborů.</string>
     <string name="network_error_login">Přihlášení se nezdařilo. Zkontrolujte uživatelské jméno a heslo.</string>
     <string name="network_error_access">Tento účet nemá do složky přístup.</string>
     <string name="network_error_not_found">Složka nebo soubor už neexistuje.</string>
@@ -130,8 +130,8 @@
     <string name="video_subtitle_sample">Takhle vypadají titulky</string>
     <string name="video_track_number">Stopa %1$d</string>
     <string name="video_track_unsupported">%1$s (nepodporováno)</string>
-    <string name="video_unsupported_sound">Zvuk tohoto videa (%1$s) tento telefon neumí přehrát.</string>
-    <string name="video_unsupported_picture">Obraz tohoto videa (%1$s) tento telefon neumí přehrát.</string>
+    <string name="video_unsupported_sound">Zvuk tohoto videa (%1$s) toto zařízení neumí přehrát.</string>
+    <string name="video_unsupported_picture">Obraz tohoto videa (%1$s) toto zařízení neumí přehrát.</string>
     <string name="video_error_unsupported">Tento formát souboru není podporován.</string>
     <string name="video_error_generic">Video nelze přehrát (%1$s).</string>
     <string name="video_lock_rotation">Zamknout otáčení</string>

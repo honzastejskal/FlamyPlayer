@@ -18,7 +18,7 @@
     <string name="search_no_results">Nothing matches “%1$s”</string>
 
     <string name="permission_title">Access to your audio files</string>
-    <string name="permission_text">FlamyPlayer needs permission to read the audio files on this device. Nothing ever leaves your phone.</string>
+    <string name="permission_text">FlamyPlayer needs permission to read the audio files on this device. Nothing ever leaves it.</string>
     <string name="permission_button">Allow access</string>
 
     <string name="music_empty_title">No music folders yet</string>
@@ -65,7 +65,7 @@
     <string name="cd_hide_password">Hide password</string>
 
     <string name="playlists_title">Playlists</string>
-    <string name="video_decoders_missing">The decoders that come with the app could not be loaded on this phone.</string>
+    <string name="video_decoders_missing">The decoders that come with the app could not be loaded on this device.</string>
     <string name="tab_video">Video</string>
     <string name="tab_radio">Radio</string>
     <string name="radio_favorites">Favorites</string>
@@ -87,9 +87,9 @@
     <string name="video_find_devices">Search the network</string>
     <string name="video_found_searching">Looking for computers, NAS boxes and media streams on your network…</string>
     <string name="video_found_none">Nothing was found on your network. A computer shows up here when it shares a folder or has media streaming switched on, and its firewall allows that.</string>
-    <string name="video_found_no_wifi">Connect the phone to Wi-Fi to see the computers and NAS boxes on your network.</string>
+    <string name="video_found_no_wifi">Connect this device to your home network, by Wi-Fi or cable, to see the computers and NAS boxes on it.</string>
     <string name="video_media_server">Media streaming</string>
-    <string name="stream_error">The media server did not answer as expected. Check that the computer is switched on and that media streaming is allowed for this phone.</string>
+    <string name="stream_error">The media server did not answer as expected. Check that the computer is switched on and that media streaming is allowed for this device.</string>
     <string name="video_permission_text">FlamyPlayer needs permission to see the videos on this device.</string>
     <string name="video_none_on_device">No videos were found on this device.</string>
     <string name="video_folder_empty_title">No videos here</string>
@@ -109,7 +109,7 @@
     <string name="network_permission_text">FlamyPlayer needs permission to connect to devices on your local network.</string>
     <string name="network_error_title">Could not open the folder</string>
     <string name="network_error_unknown_host">No device with this name was found on the network. Check the name, or enter the IP address of the device instead.</string>
-    <string name="network_error_unreachable">The computer or NAS does not respond. Check that it is switched on, that the phone is on the same Wi-Fi, and that its firewall allows file sharing.</string>
+    <string name="network_error_unreachable">The computer or NAS does not respond. Check that it is switched on, that this device is on the same network, and that the firewall of the computer allows file sharing.</string>
     <string name="network_error_login">Signing in failed. Check the user name and the password.</string>
     <string name="network_error_access">This account is not allowed to open the folder.</string>
     <string name="network_error_not_found">The folder or file does not exist any more.</string>
@@ -132,8 +132,8 @@
     <string name="video_subtitle_sample">This is what subtitles look like</string>
     <string name="video_track_number">Track %1$d</string>
     <string name="video_track_unsupported">%1$s (not supported)</string>
-    <string name="video_unsupported_sound">This phone cannot play the sound of this video (%1$s).</string>
-    <string name="video_unsupported_picture">This phone cannot play the picture of this video (%1$s).</string>
+    <string name="video_unsupported_sound">This device cannot play the sound of this video (%1$s).</string>
+    <string name="video_unsupported_picture">This device cannot play the picture of this video (%1$s).</string>
     <string name="video_error_unsupported">This file format is not supported.</string>
     <string name="video_error_generic">The video cannot be played (%1$s).</string>
     <string name="video_lock_rotation">Lock rotation</string>
