@@ -69,15 +69,22 @@ class SubtitleLoader(private val context: Context, private val smb: SmbClient) {
             }
             buffer.copyOf(length)
         }
-        if (bytes == null || bytes.size > MAX_BYTES) {
-            null
-        } else {
-            // Picked by hand, so it is a subtitle file whatever it is called.
-            val fileName = if (SubtitleFiles.format(name) == null) "$name.srt" else name
-            subtitle(label = name, language = null, fileName = fileName, bytes = bytes)
-        }
+        if (bytes == null || bytes.size > MAX_BYTES) null else picked(name, bytes)
     } catch (_: Exception) {
         null
+    }
+
+    /** Reads a subtitle file the viewer picked by hand in the folders shown on a TV. */
+    fun loadFromPlace(browser: SubtitleFileBrowser, place: SubtitlePlace, name: String): LoadedSubtitle? = try {
+        browser.read(place, name, MAX_BYTES)?.let { picked(name, it) }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun picked(name: String, bytes: ByteArray): LoadedSubtitle? {
+        // Picked by hand, so it is a subtitle file whatever it is called.
+        val fileName = if (SubtitleFiles.format(name) == null) "$name.srt" else name
+        return subtitle(label = name, language = null, fileName = fileName, bytes = bytes)
     }
 
     private fun loadFromDevice(source: SubtitleSource.Device): List<LoadedSubtitle> {

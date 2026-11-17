@@ -120,6 +120,9 @@
     <string name="video_subtitles_off">Vypnuto</string>
     <string name="video_subtitle_open_file">Načíst ze souboru…</string>
     <string name="video_subtitle_file_failed">Soubor s titulky se nepodařilo načíst.</string>
+    <string name="video_subtitle_folder_up">O složku výš</string>
+    <string name="video_subtitle_folder_empty">Nejsou tu žádné titulky ani složky.</string>
+    <string name="video_subtitle_folder_failed">Tuto složku se nepodařilo načíst.</string>
     <string name="video_subtitle_size">Velikost</string>
     <string name="video_subtitle_position">Umístění (zdola nahoru)</string>
     <string name="video_subtitle_color">Barva</string>

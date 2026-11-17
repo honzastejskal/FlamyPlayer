@@ -53,8 +53,10 @@ import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.BrightnessMedium
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DriveFolderUpload
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Pause
@@ -90,6 +92,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -138,7 +141,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import android.graphics.Color as AndroidColor
 
-private enum class Panel { NONE, AUDIO, SUBTITLES }
+private enum class Panel { NONE, AUDIO, SUBTITLES, SUBTITLE_FILES }
 
 private enum class Gesture { BRIGHTNESS, VOLUME }
 
@@ -238,7 +241,7 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
                 // Back to the button that opened the panel.
                 when (openedPanel) {
                     Panel.AUDIO -> audioFocus.tryRequestFocus()
-                    Panel.SUBTITLES -> subtitlesFocus.tryRequestFocus()
+                    Panel.SUBTITLES, Panel.SUBTITLE_FILES -> subtitlesFocus.tryRequestFocus()
                     Panel.NONE -> Unit
                 }
             }
@@ -339,6 +342,9 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
     BackHandler(enabled = isTv && controlsVisible) { controlsVisible = false }
     BackHandler(enabled = trickPlaying) { viewModel.stopTrickPlay() }
     BackHandler(enabled = panel != Panel.NONE) { panel = Panel.NONE }
+    LaunchedEffect(panel) {
+        if (panel != Panel.SUBTITLE_FILES) viewModel.closeSubtitleFolder()
+    }
 
     Box(
         Modifier
@@ -491,18 +497,47 @@ fun VideoPlayerScreen(viewModel: VideoPlayerViewModel, onClose: () -> Unit) {
                 style = subtitleStyle,
                 onSelect = viewModel::selectSubtitle,
                 onDisable = viewModel::disableSubtitles,
+                // A TV has no file picker; there the app shows the folders itself.
+                showOpenFile = !isTv || viewModel.canBrowseSubtitles,
                 onOpenFile = {
-                    panel = Panel.NONE
-                    try {
-                        pickSubtitleFile.launch(arrayOf("*/*"))
-                    } catch (_: ActivityNotFoundException) {
-                        // No file picker on this device; nothing to offer then.
+                    if (isTv) {
+                        panel = Panel.SUBTITLE_FILES
+                        viewModel.openSubtitleFolder()
+                    } else {
+                        panel = Panel.NONE
+                        try {
+                            pickSubtitleFile.launch(arrayOf("*/*"))
+                        } catch (_: ActivityNotFoundException) {
+                            // No file picker on this device; nothing to offer then.
+                        }
                     }
                 },
                 onStyleChange = viewModel.settings::setSubtitleStyle,
                 onClose = { panel = Panel.NONE },
                 modifier = panelModifier,
             )
+
+            Panel.SUBTITLE_FILES -> {
+                val folder by viewModel.subtitleFolder.collectAsStateWithLifecycle()
+                // Every folder starts with focus on its first line, once it is there. Until then
+                // focus waits in the panel, so that it does not slip out to the controls.
+                val firstLineFocus = remember { FocusRequester() }
+                LaunchedEffect(folder?.place, folder?.entries != null) {
+                    withFrameNanos { }
+                    if (folder?.entries != null) firstLineFocus.tryRequestFocus() else panelFocus.tryRequestFocus()
+                }
+                SubtitleFolderPanel(
+                    folder = folder,
+                    firstLineFocus = firstLineFocus,
+                    onUp = viewModel::subtitleFolderUp,
+                    onOpen = { entry ->
+                        if (!entry.isDirectory) panel = Panel.NONE
+                        viewModel.openSubtitleEntry(entry)
+                    },
+                    onClose = { panel = Panel.NONE },
+                    modifier = panelModifier,
+                )
+            }
 
             Panel.NONE -> Unit
         }
@@ -1005,6 +1040,7 @@ private fun SubtitlePanel(
     style: SubtitleStyle,
     onSelect: (TrackOption) -> Unit,
     onDisable: () -> Unit,
+    showOpenFile: Boolean,
     onOpenFile: () -> Unit,
     onStyleChange: (SubtitleStyle) -> Unit,
     onClose: () -> Unit,
@@ -1029,15 +1065,17 @@ private fun SubtitlePanel(
                 onClick = { onSelect(track) },
             )
         }
-        TextButton(
-            onClick = onOpenFile,
-            modifier = Modifier
-                .padding(horizontal = 8.dp)
-                .focusFrame(),
-        ) {
-            Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.video_subtitle_open_file))
+        if (showOpenFile) {
+            TextButton(
+                onClick = onOpenFile,
+                modifier = Modifier
+                    .padding(horizontal = 8.dp)
+                    .focusFrame(),
+            ) {
+                Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.video_subtitle_open_file))
+            }
         }
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -1097,6 +1135,74 @@ private fun SubtitlePanel(
             )
             Switch(checked = style.background, onCheckedChange = null)
         }
+    }
+}
+
+/** The folders and subtitle files around the video, for TVs, which have no file picker. */
+@Composable
+private fun SubtitleFolderPanel(
+    folder: SubtitleFolder?,
+    firstLineFocus: FocusRequester,
+    onUp: () -> Unit,
+    onOpen: (SubtitlePlaceEntry) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SettingsPanel(folder?.place?.name.orEmpty(), onClose, modifier) {
+        val canGoUp = folder?.place?.canGoUp == true
+        if (canGoUp) {
+            FileRow(
+                icon = Icons.Rounded.DriveFolderUpload,
+                label = stringResource(R.string.video_subtitle_folder_up),
+                onClick = onUp,
+                modifier = Modifier.focusRequester(firstLineFocus),
+            )
+        }
+        val entries = folder?.entries
+        when {
+            entries == null -> CircularProgressIndicator(
+                Modifier
+                    .padding(20.dp)
+                    .align(Alignment.CenterHorizontally),
+            )
+            entries.isEmpty() -> Text(
+                text = stringResource(
+                    if (folder.failed) R.string.video_subtitle_folder_failed else R.string.video_subtitle_folder_empty,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            )
+            else -> entries.forEachIndexed { index, entry ->
+                FileRow(
+                    icon = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.Subtitles,
+                    label = entry.name,
+                    onClick = { onOpen(entry) },
+                    modifier = if (index == 0 && !canGoUp) Modifier.focusRequester(firstLineFocus) else Modifier,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileRow(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .focusFrame()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

@@ -122,6 +122,9 @@
     <string name="video_subtitles_off">Off</string>
     <string name="video_subtitle_open_file">Load from a file…</string>
     <string name="video_subtitle_file_failed">The subtitle file could not be read.</string>
+    <string name="video_subtitle_folder_up">One folder up</string>
+    <string name="video_subtitle_folder_empty">No subtitle files or folders here.</string>
+    <string name="video_subtitle_folder_failed">This folder could not be read.</string>
     <string name="video_subtitle_size">Size</string>
     <string name="video_subtitle_position">Position (bottom to top)</string>
     <string name="video_subtitle_color">Color</string>

@@ -36,6 +36,7 @@ import io.github.flamy69.flamyplayer.network.NetworkDataSource
 import io.github.flamy69.flamyplayer.network.SmbDataSource
 import io.github.flamy69.flamyplayer.network.SmbException
 import io.github.flamy69.flamyplayer.playback.MediaRenderersFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -58,6 +59,9 @@ class TrackOption(
     val selected: Boolean,
     val supported: Boolean,
 )
+
+/** A folder in which the viewer looks for a subtitle file; [entries] are `null` while loading. */
+class SubtitleFolder(val place: SubtitlePlace, val entries: List<SubtitlePlaceEntry>?, val failed: Boolean = false)
 
 data class VideoUiState(
     val title: String = "",
@@ -94,6 +98,13 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     val isEmpty: Boolean get() = items.isEmpty()
 
     private val subtitleLoader = SubtitleLoader(app, flamyApp.smb)
+    private val fileBrowser = SubtitleFileBrowser(flamyApp.smb)
+    private var folderJob: Job? = null
+
+    private val _subtitleFolder = MutableStateFlow<SubtitleFolder?>(null)
+
+    /** The folder shown while the viewer looks for a subtitle file on a TV. */
+    val subtitleFolder: StateFlow<SubtitleFolder?> = _subtitleFolder.asStateFlow()
     private var subtitles: List<LoadedSubtitle> = emptyList()
 
     /** Label of a subtitle track to switch to as soon as the player knows about it. */
@@ -322,9 +333,57 @@ class VideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Adds a subtitle file the viewer picked and switches to it. */
     fun addSubtitleFile(uri: Uri) {
+        addPickedSubtitle { subtitleLoader.loadDocument(uri) }
+    }
+
+    /** Whether there is a folder to look for subtitle files in; media servers have none. */
+    val canBrowseSubtitles: Boolean
+        get() = items.getOrNull(index)?.let { fileBrowser.start(it.subtitles) } != null
+
+    /** Shows the folder of the video, to pick a subtitle file from on a TV. */
+    fun openSubtitleFolder() {
+        val item = items.getOrNull(index) ?: return
+        fileBrowser.start(item.subtitles)?.let(::showSubtitleFolder)
+    }
+
+    fun subtitleFolderUp() {
+        _subtitleFolder.value?.place?.let { showSubtitleFolder(fileBrowser.up(it)) }
+    }
+
+    /** Opens a folder, or adds a subtitle file and switches to it. */
+    fun openSubtitleEntry(entry: SubtitlePlaceEntry) {
+        val place = _subtitleFolder.value?.place ?: return
+        if (entry.isDirectory) {
+            showSubtitleFolder(fileBrowser.into(place, entry.name))
+        } else {
+            closeSubtitleFolder()
+            addPickedSubtitle { subtitleLoader.loadFromPlace(fileBrowser, place, entry.name) }
+        }
+    }
+
+    fun closeSubtitleFolder() {
+        folderJob?.cancel()
+        _subtitleFolder.value = null
+    }
+
+    private fun showSubtitleFolder(place: SubtitlePlace) {
+        folderJob?.cancel()
+        _subtitleFolder.value = SubtitleFolder(place, entries = null)
+        folderJob = viewModelScope.launch {
+            _subtitleFolder.value = try {
+                SubtitleFolder(place, withContext(Dispatchers.IO) { fileBrowser.list(place) })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                SubtitleFolder(place, emptyList(), failed = true)
+            }
+        }
+    }
+
+    private fun addPickedSubtitle(load: () -> LoadedSubtitle?) {
         val item = items.getOrNull(index) ?: return
         viewModelScope.launch {
-            val picked = withContext(Dispatchers.IO) { subtitleLoader.loadDocument(uri) }
+            val picked = withContext(Dispatchers.IO) { load() }
             if (picked == null) {
                 _state.update { it.copy(notice = getApplication<Application>().getString(R.string.video_subtitle_file_failed)) }
                 return@launch
