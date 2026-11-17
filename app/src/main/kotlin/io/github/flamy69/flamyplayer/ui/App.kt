@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -351,10 +352,16 @@ private fun HomeScreen(
             }
         },
     ) { padding ->
+        // On a TV, focus starts in the content of a section, not in the navigation bar. The
+        // video section puts it on a particular line itself.
+        val contentFocus = remember { FocusRequester() }
+        if (section != Section.VIDEO) FocusOnShow(key = section, requester = contentFocus)
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .focusRequester(contentFocus)
+                .focusGroup(),
         ) {
             val tracks = musicTracks
             val bookList = books

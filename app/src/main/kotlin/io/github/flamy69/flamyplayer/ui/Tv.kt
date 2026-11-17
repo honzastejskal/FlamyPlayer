@@ -3,9 +3,12 @@ package io.github.flamy69.flamyplayer.ui
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -18,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 /** Whether the app runs on a TV, where it is used with a remote control instead of touch. */
 val Context.isTv: Boolean
@@ -40,6 +44,35 @@ fun Modifier.focusFrame(shape: Shape = RoundedCornerShape(12.dp), color: Color? 
     onFocusChanged { focused = it.isFocused }
         .border(width = 3.dp, color = if (focused) frameColor else Color.Transparent, shape = shape)
 }
+
+/**
+ * On a TV, moves focus into a list as soon as it is shown, to the line [index] (which is
+ * scrolled into view) or, when [index] is `null`, to wherever [requester] sits. Runs again
+ * whenever [key] changes, e.g. for every new folder. Without this, focus stays wherever it was
+ * when the old content disappeared, often down in the navigation bar.
+ */
+@Composable
+fun FocusOnShow(key: Any?, requester: FocusRequester, listState: LazyListState? = null, index: Int? = null) {
+    val isTv = rememberIsTv()
+    LaunchedEffect(key) {
+        if (!isTv) return@LaunchedEffect
+        if (listState != null && index != null && index >= 0 &&
+            listState.layoutInfo.visibleItemsInfo.none { it.index == index }
+        ) {
+            listState.scrollToItem(index)
+        }
+        // The line is laid out with the next frame, and some content is still loading: try
+        // again for a moment.
+        repeat(FOCUS_ATTEMPTS) {
+            withFrameNanos { }
+            if (requester.tryRequestFocus()) return@LaunchedEffect
+            delay(FOCUS_RETRY_MS)
+        }
+    }
+}
+
+private const val FOCUS_ATTEMPTS = 20
+private const val FOCUS_RETRY_MS = 100L
 
 /** Asks for focus; false when the element is not on screen (yet), which is no error here. */
 fun FocusRequester.tryRequestFocus(): Boolean = try {

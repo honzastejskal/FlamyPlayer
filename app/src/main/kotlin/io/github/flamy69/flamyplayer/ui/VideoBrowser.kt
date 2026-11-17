@@ -126,6 +126,13 @@ class VideoBrowser(private val app: FlamyApp, private val scope: CoroutineScope)
 
     private var discoveryJob: Job? = null
 
+    /**
+     * After going up: the key of the line that leads back to the folder that was left, so that
+     * the remote control of a TV can carry on from there. `null` after going down.
+     */
+    var cameFrom: String? = null
+        private set
+
     /** Folders seen in this session; going back up shows them without asking the server again. */
     private val cache = HashMap<VideoLocation.Network, List<SmbEntry>>()
     private val streamCache = HashMap<VideoLocation.Stream, List<MediaEntry>>()
@@ -170,31 +177,43 @@ class VideoBrowser(private val app: FlamyApp, private val scope: CoroutineScope)
     }
 
     fun openFolder(folder: VideoFolder) {
+        cameFrom = null
         _location.value = VideoLocation.Device(folder.path)
     }
 
     /** Opens a network location where the user left it the last time. */
     fun openServer(server: SmbServer) {
+        cameFrom = null
         show(VideoLocation.Network(server.id, settings.lastPath(server.id)), fallBackToRoot = true)
     }
 
     fun openMediaServer(server: MediaServer) {
+        cameFrom = null
         showStream(VideoLocation.Stream(server, emptyList()))
     }
 
     fun openStreamFolder(folder: MediaEntry) {
         val current = _location.value as? VideoLocation.Stream ?: return
+        cameFrom = null
         showStream(current.copy(path = current.path + MediaFolder(folder.id, folder.title)))
     }
 
     fun openDirectory(name: String) {
         val current = _location.value as? VideoLocation.Network ?: return
+        cameFrom = null
         show(current.copy(path = current.path + name))
     }
 
     /** Goes one level up. Returns `false` when already at the overview. */
     fun up(): Boolean {
-        when (val current = _location.value) {
+        val current = _location.value
+        cameFrom = when (current) {
+            VideoLocation.Home -> null
+            is VideoLocation.Device -> deviceFolderKey(current.folder)
+            is VideoLocation.Network -> current.path.lastOrNull() ?: serverKey(current.serverId)
+            is VideoLocation.Stream -> current.path.lastOrNull()?.id ?: mediaServerKey(current.server)
+        }
+        when (current) {
             VideoLocation.Home -> return false
             is VideoLocation.Device -> _location.value = VideoLocation.Home
             is VideoLocation.Network -> if (current.path.isEmpty()) {
@@ -325,6 +344,11 @@ class VideoBrowser(private val app: FlamyApp, private val scope: CoroutineScope)
         }
         play(context, items, videos.indexOf(entry))
     }
+
+    /** Keys of the lines of the overview, as used in its list. */
+    fun serverKey(serverId: String): String = "server:$serverId"
+    fun mediaServerKey(server: MediaServer): String = "stream:" + server.location
+    fun deviceFolderKey(path: String): String = "folder:$path"
 
     /** The key under which the position in a video of a media server is remembered. */
     fun streamKey(server: MediaServer, entry: MediaEntry): String = "stream:" + server.id + "/" + entry.id

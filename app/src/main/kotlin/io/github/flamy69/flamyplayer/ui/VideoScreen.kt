@@ -20,7 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -57,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -136,6 +141,14 @@ private fun VideoHome(
         onResult = { browser.refreshDevice(force = true) },
     )
 
+    // On a TV: back on the line that was left, or on the first network location.
+    val focusKey = remember {
+        browser.cameFrom ?: servers.firstOrNull()?.let { browser.serverKey(it.id) } ?: ADD_NETWORK_KEY
+    }
+    val focusRequester = remember { FocusRequester() }
+    FocusOnShow(key = Unit, requester = focusRequester)
+    val focusHere = { key: String -> if (key == focusKey) Modifier.focusRequester(focusRequester) else Modifier }
+
     LazyColumn(Modifier.fillMaxSize()) {
         item(key = "network-header", contentType = "header") {
             SectionHeader(stringResource(R.string.video_section_network)) {
@@ -157,12 +170,13 @@ private fun VideoHome(
                 }
             }
         }
-        items(servers, key = { "server:" + it.id }, contentType = { "server" }) { server ->
+        items(servers, key = { browser.serverKey(it.id) }, contentType = { "server" }) { server ->
             BrowserRow(
                 icon = Icons.Rounded.Lan,
                 title = server.title,
                 subtitle = if (server.name.isBlank()) "" else server.address,
                 onClick = { openServer(server) },
+                modifier = focusHere(browser.serverKey(server.id)),
                 trailing = {
                     IconButton(onClick = { onEditServer(server) }) {
                         Icon(
@@ -198,12 +212,13 @@ private fun VideoHome(
                 }
             } else {
                 // Media servers need no sign-in and nothing to be saved: tap and browse.
-                items(found.mediaServers, key = { "stream:" + it.location }, contentType = { "stream" }) { server ->
+                items(found.mediaServers, key = { browser.mediaServerKey(it) }, contentType = { "stream" }) { server ->
                     BrowserRow(
                         icon = Icons.Rounded.VideoLibrary,
                         title = server.name,
                         subtitle = stringResource(R.string.video_media_server) + " · " + server.address,
                         onClick = { browser.openMediaServer(server) },
+                        modifier = focusHere(browser.mediaServerKey(server)),
                     )
                 }
                 // A device that was saved as a whole is listed above already. One that only has
@@ -229,12 +244,13 @@ private fun VideoHome(
                 }
             }
         }
-        item(key = "network-add", contentType = "add") {
+        item(key = ADD_NETWORK_KEY, contentType = "add") {
             BrowserRow(
                 icon = Icons.Rounded.Add,
                 title = stringResource(R.string.video_add_network),
                 subtitle = stringResource(R.string.video_add_network_hint),
                 onClick = { onAddServer("") },
+                modifier = focusHere(ADD_NETWORK_KEY),
             )
         }
 
@@ -277,12 +293,13 @@ private fun VideoHome(
                 )
             }
 
-            else -> items(deviceFolders, key = { "folder:" + it.path }, contentType = { "folder" }) { folder ->
+            else -> items(deviceFolders, key = { browser.deviceFolderKey(it.path) }, contentType = { "folder" }) { folder ->
                 BrowserRow(
                     icon = Icons.Rounded.Folder,
                     title = folder.name,
                     subtitle = pluralStringResource(R.plurals.video_count, folder.videos.size, folder.videos.size),
                     onClick = { browser.openFolder(folder) },
+                    modifier = focusHere(browser.deviceFolderKey(folder.path)),
                 )
             }
         }
@@ -306,9 +323,10 @@ private fun DeviceFolder(browser: VideoBrowser, path: String) {
             text = stringResource(R.string.video_folder_empty_text),
         )
 
-        else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(folder.videos, key = { it.id }, contentType = { "video" }) { video ->
+        else -> FocusedList(key = folder, focusIndex = 0) { focusAt ->
+            itemsIndexed(folder.videos, key = { _, video -> video.id }, contentType = { _, _ -> "video" }) { index, video ->
                 BrowserRow(
+                    modifier = focusAt(index),
                     icon = Icons.Rounded.Movie,
                     title = video.fileName,
                     subtitle = listOfNotNull(
@@ -354,14 +372,17 @@ private fun NetworkFolder(browser: VideoBrowser, location: VideoLocation.Network
                     text = stringResource(R.string.video_folder_empty_text),
                 )
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(visible, key = { it.name }, contentType = { it.isDirectory }) { entry ->
+                val cameFrom = remember(current) { browser.cameFrom }
+                val focusIndex = visible.indexOfFirst { it.name == cameFrom }.coerceAtLeast(0)
+                FocusedList(key = current, focusIndex = focusIndex) { focusAt ->
+                    itemsIndexed(visible, key = { _, entry -> entry.name }, contentType = { _, entry -> entry.isDirectory }) { index, entry ->
                         if (entry.isDirectory) {
                             BrowserRow(
                                 icon = Icons.Rounded.Folder,
                                 title = entry.name,
                                 subtitle = "",
                                 onClick = { browser.openDirectory(entry.name) },
+                                modifier = focusAt(index),
                             )
                         } else {
                             BrowserRow(
@@ -370,6 +391,7 @@ private fun NetworkFolder(browser: VideoBrowser, location: VideoLocation.Network
                                 subtitle = formatSize(entry.size),
                                 resumeAtMs = positions[browser.networkKey(location.serverId, directory, entry.name)],
                                 onClick = { browser.playNetworkVideo(context, entry) },
+                                modifier = focusAt(index),
                             )
                         }
                     }
@@ -404,7 +426,9 @@ private fun StreamFolder(browser: VideoBrowser, location: VideoLocation.Stream) 
                 text = stringResource(R.string.video_folder_empty_text),
             )
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            val cameFrom = remember(current) { browser.cameFrom }
+            val focusIndex = current.entries.indexOfFirst { it.isFolder && it.id == cameFrom }.coerceAtLeast(0)
+            FocusedList(key = current, focusIndex = focusIndex) { focusAt ->
                 // By position: a server may hand out the same item more than once.
                 items(current.entries.size, contentType = { current.entries[it].isFolder }) { index ->
                     val entry = current.entries[index]
@@ -414,6 +438,7 @@ private fun StreamFolder(browser: VideoBrowser, location: VideoLocation.Stream) 
                             title = entry.title,
                             subtitle = "",
                             onClick = { browser.openStreamFolder(entry) },
+                            modifier = focusAt(index),
                         )
                     } else {
                         BrowserRow(
@@ -425,6 +450,7 @@ private fun StreamFolder(browser: VideoBrowser, location: VideoLocation.Stream) 
                             ).joinToString(" · "),
                             resumeAtMs = positions[browser.streamKey(location.server, entry)],
                             onClick = { browser.playStreamVideo(context, entry) },
+                            modifier = focusAt(index),
                         )
                     }
                 }
@@ -655,6 +681,23 @@ private fun Hint(text: String) {
     )
 }
 
+/** The key of the line for adding a network location. */
+private const val ADD_NETWORK_KEY = "network-add"
+
+/**
+ * The list of a folder. On a TV it takes focus as soon as it is shown, on the line
+ * [focusIndex]; [content] gets the modifier for each line that ties the right one to the focus.
+ */
+@Composable
+private fun FocusedList(key: Any, focusIndex: Int, content: LazyListScope.(focusAt: (index: Int) -> Modifier) -> Unit) {
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
+    FocusOnShow(key = key, requester = focusRequester, listState = listState, index = focusIndex)
+    LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        content { index -> if (index == focusIndex) Modifier.focusRequester(focusRequester) else Modifier }
+    }
+}
+
 /** One line of the video browser: a source, a folder or a video. */
 @Composable
 private fun BrowserRow(
@@ -662,11 +705,12 @@ private fun BrowserRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     resumeAtMs: Long? = null,
     trailing: @Composable () -> Unit = {},
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
